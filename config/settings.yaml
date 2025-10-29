@@ -26,3 +26,14 @@ settings:
   retention_days: 90
   max_parallel_jobs: 4
   allowed_extensions: [".csv"]
+
+email:
+  sender: noreply@bu.edu
+  recipients: ["research-admin@bu.edu", "it-ops@bu.edu"]
+  smtp_host: mailhub.bu.edu
+  smtp_port: 25
+
+alerts:
+  slack_webhook: "https://hooks.slack.com/services/XXXX/XXXX/XXXX"
+
+
