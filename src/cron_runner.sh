@@ -3,9 +3,10 @@
 # Boston University Research Data Lake – Nightly ETL Runner
 # ----------------------------------------------------------
 # • Runs the nightly ETL job
-# • Logs runtime in CSV + SQLite
+# • Logs runtime (start & end timestamps)
+# • Writes results to CSV and SQLite
 # • Sends Slack & email notifications
-# • Writes a success marker for the watchdog
+# • Updates success marker for watchdog
 #
 
 # -------- CONFIGURATION --------
@@ -17,31 +18,37 @@ LOG_FILE="$LOG_DIR/cron_etl.log"
 STATUS_FILE="$LOG_DIR/cron_status.log"
 SUCCESS_MARKER="$LOG_DIR/last_success.txt"
 ADMIN_EMAIL="sysadmin@bu.edu"
-SLACK_WEBHOOK="https://hooks.slack.com/services/XXXX/YYYY/ZZZZ"   # <-- replace with your webhook
+SLACK_WEBHOOK="https://hooks.slack.com/services/XXXX/YYYY/ZZZZ"  # Replace with your Slack webhook
 
-# -------- PREPARE ENVIRONMENT --------
+# -------- ENVIRONMENT SETUP --------
 cd "$PROJECT_DIR" || {
-  echo "$(date): ERROR – cannot cd to $PROJECT_DIR" | /usr/local/bin/sendmail -s "ETL Cron Failure: bad path" $ADMIN_EMAIL
+  echo "$(date): ERROR – cannot cd to $PROJECT_DIR" | /usr/sbin/sendmail -s "ETL Cron Failure: bad path" $ADMIN_EMAIL
   exit 1
 }
+
 if [ ! -f "$PYTHON" ]; then
-  echo "$(date): ERROR – venv missing in $VENV_DIR" | /usr/local/bin/sendmail -s "ETL Cron Failure: missing venv" $ADMIN_EMAIL
+  echo "$(date): ERROR – venv missing in $VENV_DIR" | /usr/sbin/sendmail -s "ETL Cron Failure: missing venv" $ADMIN_EMAIL
   exit 1
 fi
-source "$VENV_DIR/bin/activate"
 
-# -------- START LOG --------
+source "$VENV_DIR/bin/activate"
 mkdir -p "$LOG_DIR"
+
+# -------- START LOGGING --------
 echo "----------------------------------------" >> "$LOG_FILE"
-echo "$(date): Starting nightly ETL job…" >> "$LOG_FILE"
+echo "$(date): Starting nightly ETL job..." >> "$LOG_FILE"
 
 # -------- RUN ETL --------
-start_time=$(date +%s)
+start_time_epoch=$(date +%s)
 $PYTHON src/main.py >> "$LOG_FILE" 2>&1
 status=$?
-end_time=$(date +%s)
-runtime=$((end_time - start_time))
+end_time_epoch=$(date +%s)
+runtime=$((end_time_epoch - start_time_epoch))
 runtime_min=$(awk "BEGIN {print $runtime/60}")
+
+# Convert epoch to readable timestamps
+start_time_fmt=$(date -r $start_time_epoch "+%Y-%m-%d %H:%M:%S")
+end_time_fmt=$(date -r $end_time_epoch "+%Y-%m-%d %H:%M:%S")
 
 # Determine run status
 if [ "$status" -eq 0 ]; then
@@ -53,13 +60,13 @@ fi
 # -------- LOG RUNTIME TO CSV --------
 $PYTHON - <<END
 from src.log_runtime_stats import log_runtime_csv
-log_runtime_csv("$LOG_DIR", $runtime, "$run_status")
+log_runtime_csv("$LOG_DIR", $runtime, "$run_status", "$start_time_fmt", "$end_time_fmt")
 END
 
 # -------- LOG RUNTIME TO SQLITE --------
 $PYTHON - <<END
 from src.log_runtime_sqlite import log_runtime_sqlite
-log_runtime_sqlite("$LOG_DIR/etl_stats.db", $runtime, "$run_status")
+log_runtime_sqlite("$LOG_DIR/etl_stats.db", $runtime, "$run_status", "$start_time_fmt", "$end_time_fmt")
 END
 
 # -------- SLACK ALERT FUNCTION --------
@@ -89,34 +96,35 @@ if [ "$status" -eq 0 ]; then
   echo "$(date): ETL completed successfully" >> "$STATUS_FILE"
   echo "$(date)" > "$SUCCESS_MARKER"
 
-  # Slack success message
   send_slack_alert "BU Research Data Lake – ETL Success" \
-                   "✅ ETL completed successfully in ${runtime_min} min." \
+                   "✅ ETL completed successfully in ${runtime_min} min.\nStart: $start_time_fmt\nEnd: $end_time_fmt" \
                    "#36a64f"
 
 else
-  echo "$(date): ❌ ETL failed (exit $status)" >> "$LOG_FILE"
-  echo "$(date): ETL failed (exit $status)" >> "$STATUS_FILE"
+  echo "$(date): ❌ ETL failed (exit code $status)" >> "$LOG_FILE"
+  echo "$(date): ETL failed (exit code $status)" >> "$STATUS_FILE"
 
   tail -n 30 "$LOG_FILE" > "$LOG_DIR/last_failure_snippet.txt"
 
-  # Email failure details
   {
     echo "Subject: ETL Cron Job Failure on $(hostname)"
     echo "To: $ADMIN_EMAIL"
     echo "From: noreply@bu.edu"
     echo ""
-    echo "ETL failed on $(hostname) at $(date). Exit code: $status"
+    echo "ETL job failed on $(hostname) at $(date). Exit code: $status"
     echo ""
-    echo "Last 30 lines of log:"
+    echo "Start time: $start_time_fmt"
+    echo "End time:   $end_time_fmt"
+    echo "Runtime:    ${runtime_min} minutes"
+    echo ""
+    echo "Last 30 lines of ETL log:"
     echo "----------------------------------------"
     cat "$LOG_DIR/last_failure_snippet.txt"
     echo "----------------------------------------"
-  } | /usr/local/bin/sendmail "$ADMIN_EMAIL"
+  } | /usr/sbin/sendmail "$ADMIN_EMAIL"
 
-  # Slack failure message
   send_slack_alert "BU Research Data Lake – ETL Failure" \
-                   "❌ ETL failed (exit $status)." \
+                   "❌ ETL failed with exit code $status.\nStart: $start_time_fmt\nEnd: $end_time_fmt" \
                    "#ff0000"
   exit 1
 fi
