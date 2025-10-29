@@ -1,0 +1,28 @@
+sftp:
+  host: huron-v12-sftp.example.com
+  user: huron_feed
+  private_key: ~/.ssh/id_rsa
+  remote_dir: /outgoing/bu/
+  local_dir: ./data/incoming/
+
+paths:
+  raw: ./data/raw/
+  staging: ./data/staging/
+  curated: ./data/curated/
+  archive: ./data/archive/
+  manifest: ./data/metadata/manifest.json
+  log_file: ./logs/etl.log
+
+email:
+  sender: noreply@bu.edu
+  recipients: ["research-admin@bu.edu"]
+  smtp_host: mailhub.bu.edu
+  smtp_port: 25
+
+alerts:
+  slack_webhook: "https://hooks.slack.com/services/XXXXXX"
+
+settings:
+  retention_days: 90
+  max_parallel_jobs: 4
+  allowed_extensions: [".csv"]

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+
+# Logs and generated data
+logs/
+data/raw/
+data/staging/
+data/curated/
+data/archive/
+data/metadata/manifest.json
+data/incoming/*.csv
+
+# OS files
+.DS_Store
+
+# Zip / build artifacts
+*.zip
+
